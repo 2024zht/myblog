@@ -860,7 +860,7 @@ const anzhiyu = {
   //隐藏今日推荐
   hideTodayCard: function () {
     if (document.getElementById("todayCard")) {
-      document.getElementById("todayCard").classList.add("hide");
+      document.getElementById("todayCard").classList.add("hide", "card-reveal-finished");
       const topGroup = document.querySelector(".topGroup");
       const recentPostItems = topGroup.querySelectorAll(".recent-post-item");
       recentPostItems.forEach(item => {

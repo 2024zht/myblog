@@ -1136,6 +1136,137 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   };
 
+  let cardRevealObserver;
+  let cardPanelObserver;
+  let cardTiltFrame;
+  let cardTiltCleanup;
+
+  const clearCardMotion = function () {
+    cardRevealObserver && cardRevealObserver.disconnect();
+    cardPanelObserver && cardPanelObserver.disconnect();
+    cardTiltFrame && cancelAnimationFrame(cardTiltFrame);
+    cardTiltCleanup && cardTiltCleanup();
+    cardRevealObserver = null;
+    cardPanelObserver = null;
+    cardTiltFrame = null;
+    cardTiltCleanup = null;
+  };
+
+  const initCardMotion = function () {
+    clearCardMotion();
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const revealGroups = [
+      "#random-banner, .categoryGroup .categoryItem, .topGroup .recent-post-item, #todayCard",
+      "#recent-posts > .recent-post-item, .layout > .recent-posts .pagination > *:not(.space):not(pangu)",
+      "#aside-content .card-widget, .layout > div:first-child:not(.recent-posts):not(.aside-content)",
+      ".equipment-item-content-item, .author-content-item, .flink-list-item, .cardHover",
+    ];
+    const panelSelectors = [
+      "#console .console-card, #console .reward-all",
+      "#sidebar-menus .sidebar-site-data, #sidebar-menus .sidebar-menu-item > a, #sidebar-menus .back-menu-item, #sidebar-menus .menus_items > .menus_item, #sidebar-menus .card-tag-cloud > a",
+    ];
+    const getCards = selector => Array.from(document.querySelectorAll(selector));
+    const prepareCards = cards => {
+      cards.forEach((card, index) => {
+        card.classList.remove("card-reveal-visible", "card-reveal-finished");
+        card.classList.add("card-reveal");
+        card.style.setProperty("--card-reveal-delay", `${index * 150}ms`);
+      });
+    };
+    const finishReveal = event => {
+      if (event.animationName !== "card-reveal-opacity") return;
+      event.currentTarget.classList.add("card-reveal-finished");
+      event.currentTarget.removeEventListener("animationend", finishReveal);
+    };
+    const revealCards = cards => {
+      cards.forEach(card => {
+        card.classList.add("card-reveal-visible");
+        card.classList.remove("card-reveal");
+        card.addEventListener("animationend", finishReveal);
+      });
+    };
+
+    const pageGroups = revealGroups.map(getCards).filter(group => group.length);
+    const panelGroups = panelSelectors.map(getCards).filter(group => group.length);
+    pageGroups.forEach(prepareCards);
+    panelGroups.forEach(prepareCards);
+
+    if (reducedMotion || !("IntersectionObserver" in window)) {
+      pageGroups.forEach(revealCards);
+      panelGroups.forEach(revealCards);
+    } else {
+      cardRevealObserver = new IntersectionObserver(
+        entries => {
+          entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add("card-reveal-visible");
+            entry.target.classList.remove("card-reveal");
+            entry.target.addEventListener("animationend", finishReveal);
+            cardRevealObserver.unobserve(entry.target);
+          });
+        },
+        { rootMargin: "0px 0px -15% 0px", threshold: 0.01 }
+      );
+      pageGroups.forEach(group => group.forEach(card => cardRevealObserver.observe(card)));
+
+      const sidebarMenu = document.getElementById("sidebar-menus");
+      const consolePanel = document.getElementById("console");
+      const revealOpenPanels = () => {
+        if (sidebarMenu && sidebarMenu.classList.contains("open")) revealCards(panelGroups[1] || []);
+        if (consolePanel && (consolePanel.classList.contains("show") || consolePanel.classList.contains("reward-show"))) {
+          revealCards(panelGroups[0] || []);
+        }
+      };
+      cardPanelObserver = new MutationObserver(revealOpenPanels);
+      sidebarMenu && cardPanelObserver.observe(sidebarMenu, { attributes: true, attributeFilter: ["class"] });
+      consolePanel && cardPanelObserver.observe(consolePanel, { attributes: true, attributeFilter: ["class"] });
+      revealOpenPanels();
+    }
+
+    const todayCard = document.getElementById("todayCard");
+    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!todayCard || reducedMotion || !finePointer) return;
+
+    const resetTilt = () => {
+      cardTiltFrame && cancelAnimationFrame(cardTiltFrame);
+      cardTiltFrame = null;
+      todayCard.style.setProperty("--today-card-rotate-x", "0deg");
+      todayCard.style.setProperty("--today-card-rotate-y", "0deg");
+      todayCard.classList.remove("card-tilt-active");
+    };
+    const setTilt = event => {
+      const rect = todayCard.getBoundingClientRect();
+      const rotateY = Math.max(-10, Math.min(10, (event.clientX - rect.left - rect.width / 2) / 25));
+      const rotateX = Math.max(-10, Math.min(10, (event.clientY - rect.top - rect.height / 2) / 25));
+      cardTiltFrame && cancelAnimationFrame(cardTiltFrame);
+      cardTiltFrame = requestAnimationFrame(() => {
+        todayCard.style.setProperty("--today-card-rotate-x", `${rotateX}deg`);
+        todayCard.style.setProperty("--today-card-rotate-y", `${rotateY}deg`);
+        todayCard.classList.add("card-tilt-active");
+        cardTiltFrame = null;
+      });
+    };
+    const focusTilt = () => todayCard.classList.add("card-tilt-active");
+    const blurTilt = event => {
+      if (!todayCard.contains(event.relatedTarget)) resetTilt();
+    };
+
+    todayCard.classList.add("card-tilt-ready");
+    todayCard.addEventListener("pointermove", setTilt);
+    todayCard.addEventListener("pointerleave", resetTilt);
+    todayCard.addEventListener("focus", focusTilt);
+    todayCard.addEventListener("blur", blurTilt);
+    cardTiltCleanup = () => {
+      todayCard.removeEventListener("pointermove", setTilt);
+      todayCard.removeEventListener("pointerleave", resetTilt);
+      todayCard.removeEventListener("focus", focusTilt);
+      todayCard.removeEventListener("blur", blurTilt);
+      resetTilt();
+      todayCard.classList.remove("card-tilt-ready");
+    };
+  };
+
   const mouseleaveHomeCard = function () {
     const topGroup = document.querySelector(".topGroup");
     if (!topGroup) return;
@@ -1816,6 +1947,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (document.getElementById("post-comment")) owoBig();
 
     mouseleaveHomeCard();
+    initCardMotion();
     coverColor();
     listenToPageInputPress();
     openMobileMenu();
